@@ -1,0 +1,4 @@
+{
+  "summary": "Security specification defining Zero-Trust data invariants and Dirty Dozen adversarial payloads for DairyTrack's three-user RBAC (Farm Administrator, Uncle Farm Member with full financial access, and Restricted Farm Worker isolated from financial/sensitive records).",
+  "updatedAt": "2026-11-02T18:21:26.288987377Z"
+}

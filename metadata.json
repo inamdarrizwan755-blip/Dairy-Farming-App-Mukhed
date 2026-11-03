@@ -1,0 +1,6 @@
+{
+  "name": "DairyTrack — My Smart Dairy Farm",
+  "description": "Private, offline-first smart dairy farm management application for herd tracking, milk production, sales, feed inventory, health, breeding, calving, finance, QR ear-tag scanning, and local checksum-verified backups.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

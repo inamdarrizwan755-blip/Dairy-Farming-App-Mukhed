@@ -1,0 +1,521 @@
+{
+  "entities": {
+    "FarmAccess": {
+      "title": "FarmAccess",
+      "description": "Root access control and three-user membership registry (Administrator, Uncle Farm Member, and Restricted Farm Worker) for the shared dairy farm.",
+      "type": "object",
+      "properties": {
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Stable identifier for the shared farm (primary_farm)."
+        },
+        "farmName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of the shared dairy farm."
+        },
+        "adminUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the Farm Administrator."
+        },
+        "adminEmail": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160,
+          "description": "Verified Google email address of the Farm Administrator."
+        },
+        "memberEmail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 160,
+          "description": "Allowlisted Google email address of the second user (Farm Member / Uncle), or empty string."
+        },
+        "memberUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the Farm Member once signed in, or empty string."
+        },
+        "workerEmail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 160,
+          "description": "Allowlisted Google email address of the third user (Restricted Farm Worker), or empty string."
+        },
+        "workerUid": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the Farm Worker once signed in, or empty string."
+        },
+        "workerActive": {
+          "type": "boolean",
+          "description": "Whether the Farm Worker account is active (true) or suspended (false)."
+        },
+        "managerEmails": {
+          "type": "array",
+          "description": "Bounded list (1 to 2 items) of manager verified emails (Administrator + Uncle) authorized to read financial and sensitive farm records."
+        },
+        "authorizedEmails": {
+          "type": "array",
+          "description": "Bounded list (1 to 3 items) of all currently active authorized verified emails for worker-permitted operational records."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the shared farm vault was initialized."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when membership or farm access was last updated."
+        }
+      },
+      "required": [
+        "farmId",
+        "farmName",
+        "adminUid",
+        "adminEmail",
+        "memberEmail",
+        "memberUid",
+        "workerEmail",
+        "workerUid",
+        "workerActive",
+        "managerEmails",
+        "authorizedEmails",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SharedFarmSettings": {
+      "title": "SharedFarmSettings",
+      "description": "Synchronized farm configuration modifiable exclusively by the Farm Administrator.",
+      "type": "object",
+      "properties": {
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "farmName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "ownerName": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 30
+        },
+        "address": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300
+        },
+        "currencySymbol": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8
+        },
+        "volumeUnit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "weightUnit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "enableAfternoonSession": {
+          "type": "boolean"
+        },
+        "defaultMilkRatePerLitre": {
+          "type": "number"
+        },
+        "gestationDaysCow": {
+          "type": "number"
+        },
+        "gestationDaysBuffalo": {
+          "type": "number"
+        },
+        "notificationsEnabled": {
+          "type": "boolean"
+        },
+        "setupCompleted": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedByEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "authorizedEmails": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "farmId",
+        "farmName",
+        "ownerName",
+        "phone",
+        "address",
+        "currencySymbol",
+        "volumeUnit",
+        "weightUnit",
+        "enableAfternoonSession",
+        "defaultMilkRatePerLitre",
+        "gestationDaysCow",
+        "gestationDaysBuffalo",
+        "notificationsEnabled",
+        "setupCompleted",
+        "version",
+        "updatedBy",
+        "updatedByEmail",
+        "authorizedEmails",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SyncedFarmRecord": {
+      "title": "SyncedFarmRecord",
+      "description": "Versioned, audited, soft-deletable synchronized farm entity across the 22 operational and financial stores.",
+      "type": "object",
+      "properties": {
+        "docId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "storeName": {
+          "type": "string",
+          "enum": [
+            "animals",
+            "milk_records",
+            "customers",
+            "milk_sales",
+            "feed_types",
+            "feed_stock_transactions",
+            "feed_records",
+            "health_records",
+            "medicines",
+            "medicine_usages",
+            "veterinary_visits",
+            "vaccination_records",
+            "breeding_records",
+            "pregnancy_records",
+            "calving_records",
+            "weight_records",
+            "lactation_records",
+            "income_records",
+            "expense_records",
+            "employees",
+            "farm_tasks",
+            "reminders"
+          ]
+        },
+        "recordId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "data": {
+          "type": "object",
+          "description": "Native Firestore Map of the typed farm entity properties including audit and correction history."
+        },
+        "version": {
+          "type": "integer"
+        },
+        "baseVersion": {
+          "type": "integer"
+        },
+        "isDeleted": {
+          "type": "boolean"
+        },
+        "clientCreatedAt": {
+          "type": "integer"
+        },
+        "clientUpdatedAt": {
+          "type": "integer"
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedByEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "authorizedEmails": {
+          "type": "array",
+          "description": "Role-segregated email allowlist: managerEmails (Admin+Uncle) for financial/sensitive stores, or authorizedEmails (Admin+Uncle+active Worker) for worker-allowed stores."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "docId",
+        "farmId",
+        "storeName",
+        "recordId",
+        "data",
+        "version",
+        "baseVersion",
+        "isDeleted",
+        "clientCreatedAt",
+        "clientUpdatedAt",
+        "updatedBy",
+        "updatedByEmail",
+        "authorizedEmails",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SyncConflictRecord": {
+      "title": "SyncConflictRecord",
+      "description": "Preserves both versions when authorized phones edit the same record simultaneously while offline.",
+      "type": "object",
+      "properties": {
+        "conflictId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "docId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "storeName": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "recordId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "serverVersion": {
+          "type": "integer"
+        },
+        "proposedBaseVersion": {
+          "type": "integer"
+        },
+        "serverData": {
+          "type": "object"
+        },
+        "proposedData": {
+          "type": "object"
+        },
+        "serverUpdatedByEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "proposedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "proposedByEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "enum": ["OPEN", "RESOLVED"]
+        },
+        "resolution": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32
+        },
+        "updatedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "updatedByEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "authorizedEmails": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "conflictId",
+        "farmId",
+        "docId",
+        "storeName",
+        "recordId",
+        "serverVersion",
+        "proposedBaseVersion",
+        "serverData",
+        "proposedData",
+        "serverUpdatedByEmail",
+        "proposedByUid",
+        "proposedByEmail",
+        "status",
+        "resolution",
+        "updatedBy",
+        "updatedByEmail",
+        "authorizedEmails",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CloudBackupSnapshot": {
+      "title": "CloudBackupSnapshot",
+      "description": "Immutable point-in-time cloud backup metadata and SHA-256 verified farm snapshot stored separately from live synchronization, accessible exclusively by the Farm Administrator.",
+      "type": "object",
+      "properties": {
+        "backupId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "farmId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "schemaVersion": {
+          "type": "integer"
+        },
+        "recordCount": {
+          "type": "integer"
+        },
+        "checksumSha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "snapshotData": {
+          "type": "object",
+          "description": "Native Firestore Map of farm stores (excluding oversized base64 photos) for cloud disaster recovery."
+        },
+        "adminUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "adminEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "backupId",
+        "farmId",
+        "label",
+        "schemaVersion",
+        "recordCount",
+        "checksumSha256",
+        "snapshotData",
+        "adminUid",
+        "adminEmail",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/farms/{farmId}": {
+      "schema": { "$ref": "#/entities/FarmAccess" },
+      "description": "Single shared dairy farm access and three-user RBAC document."
+    },
+    "/farms/{farmId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/SharedFarmSettings" },
+      "description": "Shared farm operational settings controlled exclusively by the Farm Administrator."
+    },
+    "/farms/{farmId}/records/{docId}": {
+      "schema": { "$ref": "#/entities/SyncedFarmRecord" },
+      "description": "Synchronized operational and financial farm entities with strict store-level Worker isolation."
+    },
+    "/farms/{farmId}/conflicts/{conflictId}": {
+      "schema": { "$ref": "#/entities/SyncConflictRecord" },
+      "description": "Non-destructive conflict queue for simultaneous offline edits."
+    },
+    "/farms/{farmId}/backups/{backupId}": {
+      "schema": { "$ref": "#/entities/CloudBackupSnapshot" },
+      "description": "Immutable point-in-time cloud backup vault separated from live sync, restricted to the Farm Administrator."
+    }
+  }
+}

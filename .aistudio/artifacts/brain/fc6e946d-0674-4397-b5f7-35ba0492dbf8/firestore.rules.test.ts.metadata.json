@@ -1,0 +1,4 @@
+{
+  "summary": "Firestore security rules test suite verifying all 12 Dirty Dozen adversarial payloads and positive RBAC cases for Administrator, Uncle (with full financial permissions), and Farm Worker (restricted to milk, AI, and calving with zero financial or delete access).",
+  "updatedAt": "2026-11-02T18:21:58.964647072Z"
+}

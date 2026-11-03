@@ -1,0 +1,802 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidRecordId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 96 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email.size() >= 3
+        && request.auth.token.email.size() <= 160
+        && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && request.auth.token.email == 'inamdarrizwan755@gmail.com';
+    }
+
+    function farmExists(farmId) {
+      return exists(/databases/$(database)/documents/farms/$(farmId));
+    }
+
+    function getFarm(farmId) {
+      return get(/databases/$(database)/documents/farms/$(farmId)).data;
+    }
+
+    function isFarmAdmin(farmId) {
+      return isBootstrappedAdmin()
+        && farmExists(farmId)
+        && getFarm(farmId).adminUid == request.auth.uid;
+    }
+
+    function isUncleMember(farmId) {
+      return isSignedIn()
+        && farmExists(farmId)
+        && getFarm(farmId).memberEmail != ''
+        && request.auth.token.email == getFarm(farmId).memberEmail
+        && (getFarm(farmId).memberUid == '' || getFarm(farmId).memberUid == request.auth.uid);
+    }
+
+    function isFarmManager(farmId) {
+      return isFarmAdmin(farmId) || isUncleMember(farmId);
+    }
+
+    function isActiveWorker(farmId) {
+      return isSignedIn()
+        && farmExists(farmId)
+        && 'workerEmail' in getFarm(farmId)
+        && getFarm(farmId).workerEmail != ''
+        && getFarm(farmId).workerActive == true
+        && request.auth.token.email == getFarm(farmId).workerEmail
+        && (getFarm(farmId).workerUid == '' || getFarm(farmId).workerUid == request.auth.uid);
+    }
+
+    function isValidEmailEntry(email) {
+      return email is string && email.size() >= 3 && email.size() <= 160;
+    }
+
+    function isValidManagerEmails(emails) {
+      return emails is list
+        && emails.size() >= 1
+        && emails.size() <= 2
+        && isValidEmailEntry(emails[0])
+        && emails[0] == 'inamdarrizwan755@gmail.com'
+        && (
+          emails.size() == 1
+          || (isValidEmailEntry(emails[1]) && emails[1] != emails[0])
+        );
+    }
+
+    function isValidAuthorizedEmails(emails) {
+      return emails is list
+        && emails.size() >= 1
+        && emails.size() <= 3
+        && isValidEmailEntry(emails[0])
+        && emails[0] == 'inamdarrizwan755@gmail.com'
+        && (
+          emails.size() == 1
+          || (
+            emails.size() == 2
+            && isValidEmailEntry(emails[1])
+            && emails[1] != emails[0]
+          )
+          || (
+            emails.size() == 3
+            && isValidEmailEntry(emails[1])
+            && isValidEmailEntry(emails[2])
+            && emails[1] != emails[0]
+            && emails[2] != emails[0]
+            && emails[2] != emails[1]
+          )
+        );
+    }
+
+    function isValidStoreName(storeName) {
+      return storeName is string
+        && storeName.size() >= 3
+        && storeName.size() <= 40
+        && storeName in [
+          'animals',
+          'milk_records',
+          'customers',
+          'milk_sales',
+          'feed_types',
+          'feed_stock_transactions',
+          'feed_records',
+          'health_records',
+          'medicines',
+          'medicine_usages',
+          'veterinary_visits',
+          'vaccination_records',
+          'breeding_records',
+          'pregnancy_records',
+          'calving_records',
+          'weight_records',
+          'lactation_records',
+          'income_records',
+          'expense_records',
+          'employees',
+          'farm_tasks',
+          'reminders'
+        ];
+    }
+
+    function isWorkerAllowedStore(storeName) {
+      return storeName is string
+        && storeName in [
+          'animals',
+          'milk_records',
+          'breeding_records',
+          'pregnancy_records',
+          'calving_records',
+          'lactation_records',
+          'weight_records'
+        ];
+    }
+
+    function matchesExpectedRecordEmails(farmId, storeName, emails) {
+      return (isWorkerAllowedStore(storeName) && emails == getFarm(farmId).authorizedEmails)
+        || (!isWorkerAllowedStore(storeName) && emails == getFarm(farmId).managerEmails);
+    }
+
+    // --- Entity Validation Blueprints (Pure on data: no existing() or diff() inside helpers) ---
+
+    function isValidFarmAccess(data) {
+      return data.keys().hasAll([
+          'farmId',
+          'farmName',
+          'adminUid',
+          'adminEmail',
+          'memberEmail',
+          'memberUid',
+          'workerEmail',
+          'workerUid',
+          'workerActive',
+          'managerEmails',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'farmId',
+          'farmName',
+          'adminUid',
+          'adminEmail',
+          'memberEmail',
+          'memberUid',
+          'workerEmail',
+          'workerUid',
+          'workerActive',
+          'managerEmails',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.farmId is string && data.farmId == 'primary_farm'
+        && data.farmName is string && data.farmName.size() >= 1 && data.farmName.size() <= 120
+        && data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128
+        && isValidEmailEntry(data.adminEmail)
+        && data.adminEmail == 'inamdarrizwan755@gmail.com'
+        && data.memberEmail is string && data.memberEmail.size() <= 160
+        && data.memberEmail != data.adminEmail
+        && data.memberUid is string && data.memberUid.size() <= 128
+        && (data.memberEmail != '' || data.memberUid == '')
+        && data.workerEmail is string && data.workerEmail.size() <= 160
+        && data.workerEmail != data.adminEmail
+        && (data.memberEmail == '' || data.workerEmail == '' || data.memberEmail != data.workerEmail)
+        && data.workerUid is string && data.workerUid.size() <= 128
+        && data.workerActive is bool
+        && (data.workerEmail != '' || (data.workerUid == '' && data.workerActive == false))
+        && isValidManagerEmails(data.managerEmails)
+        && (
+          (data.memberEmail == '' && data.managerEmails.size() == 1)
+          || (data.memberEmail != '' && data.managerEmails.size() == 2 && data.managerEmails[1] == data.memberEmail)
+        )
+        && isValidAuthorizedEmails(data.authorizedEmails)
+        && (
+          (
+            (data.workerEmail == '' || data.workerActive == false)
+            && data.authorizedEmails == data.managerEmails
+          )
+          || (
+            data.workerEmail != ''
+            && data.workerActive == true
+            && data.authorizedEmails.size() == data.managerEmails.size() + 1
+            && data.authorizedEmails[0] == data.managerEmails[0]
+            && (data.managerEmails.size() == 1 || data.authorizedEmails[1] == data.managerEmails[1])
+            && data.authorizedEmails[data.authorizedEmails.size() - 1] == data.workerEmail
+          )
+        )
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSharedFarmSettings(data) {
+      return data.keys().hasAll([
+          'farmId',
+          'farmName',
+          'ownerName',
+          'phone',
+          'address',
+          'currencySymbol',
+          'volumeUnit',
+          'weightUnit',
+          'enableAfternoonSession',
+          'defaultMilkRatePerLitre',
+          'gestationDaysCow',
+          'gestationDaysBuffalo',
+          'notificationsEnabled',
+          'setupCompleted',
+          'version',
+          'updatedBy',
+          'updatedByEmail',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'farmId',
+          'farmName',
+          'ownerName',
+          'phone',
+          'address',
+          'currencySymbol',
+          'volumeUnit',
+          'weightUnit',
+          'enableAfternoonSession',
+          'defaultMilkRatePerLitre',
+          'gestationDaysCow',
+          'gestationDaysBuffalo',
+          'notificationsEnabled',
+          'setupCompleted',
+          'version',
+          'updatedBy',
+          'updatedByEmail',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.farmId is string && data.farmId == 'primary_farm'
+        && data.farmName is string && data.farmName.size() >= 1 && data.farmName.size() <= 120
+        && data.ownerName is string && data.ownerName.size() <= 120
+        && data.phone is string && data.phone.size() <= 30
+        && data.address is string && data.address.size() <= 300
+        && data.currencySymbol is string && data.currencySymbol.size() >= 1 && data.currencySymbol.size() <= 8
+        && data.volumeUnit is string && data.volumeUnit.size() >= 1 && data.volumeUnit.size() <= 16
+        && data.weightUnit is string && data.weightUnit.size() >= 1 && data.weightUnit.size() <= 16
+        && data.enableAfternoonSession is bool
+        && data.defaultMilkRatePerLitre is number && data.defaultMilkRatePerLitre >= 0 && data.defaultMilkRatePerLitre <= 10000
+        && data.gestationDaysCow is number && data.gestationDaysCow >= 250 && data.gestationDaysCow <= 320
+        && data.gestationDaysBuffalo is number && data.gestationDaysBuffalo >= 280 && data.gestationDaysBuffalo <= 340
+        && data.notificationsEnabled is bool
+        && data.setupCompleted is bool
+        && data.version is int && data.version >= 1
+        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 && data.updatedBy == request.auth.uid
+        && isValidEmailEntry(data.updatedByEmail) && data.updatedByEmail == request.auth.token.email
+        && isValidAuthorizedEmails(data.authorizedEmails)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSyncedFarmRecord(data) {
+      return data.keys().hasAll([
+          'docId',
+          'farmId',
+          'storeName',
+          'recordId',
+          'data',
+          'version',
+          'baseVersion',
+          'isDeleted',
+          'clientCreatedAt',
+          'clientUpdatedAt',
+          'updatedBy',
+          'updatedByEmail',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'docId',
+          'farmId',
+          'storeName',
+          'recordId',
+          'data',
+          'version',
+          'baseVersion',
+          'isDeleted',
+          'clientCreatedAt',
+          'clientUpdatedAt',
+          'updatedBy',
+          'updatedByEmail',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.docId)
+        && data.farmId is string && data.farmId == 'primary_farm'
+        && isValidStoreName(data.storeName)
+        && isValidRecordId(data.recordId)
+        && data.data is map && data.data.size() >= 1 && data.data.size() <= 45
+        && data.version is int && data.version >= 1
+        && data.baseVersion is int && data.baseVersion >= 0
+        && data.isDeleted is bool
+        && data.clientCreatedAt is int && data.clientCreatedAt >= 0
+        && data.clientUpdatedAt is int && data.clientUpdatedAt >= 0
+        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 && data.updatedBy == request.auth.uid
+        && isValidEmailEntry(data.updatedByEmail) && data.updatedByEmail == request.auth.token.email
+        && isValidAuthorizedEmails(data.authorizedEmails)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSyncConflict(data) {
+      return data.keys().hasAll([
+          'conflictId',
+          'farmId',
+          'docId',
+          'storeName',
+          'recordId',
+          'serverVersion',
+          'proposedBaseVersion',
+          'serverData',
+          'proposedData',
+          'serverUpdatedByEmail',
+          'proposedByUid',
+          'proposedByEmail',
+          'status',
+          'resolution',
+          'updatedBy',
+          'updatedByEmail',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'conflictId',
+          'farmId',
+          'docId',
+          'storeName',
+          'recordId',
+          'serverVersion',
+          'proposedBaseVersion',
+          'serverData',
+          'proposedData',
+          'serverUpdatedByEmail',
+          'proposedByUid',
+          'proposedByEmail',
+          'status',
+          'resolution',
+          'updatedBy',
+          'updatedByEmail',
+          'authorizedEmails',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.conflictId)
+        && data.farmId is string && data.farmId == 'primary_farm'
+        && isValidId(data.docId)
+        && isValidStoreName(data.storeName)
+        && isValidRecordId(data.recordId)
+        && data.serverVersion is int && data.serverVersion >= 1
+        && data.proposedBaseVersion is int && data.proposedBaseVersion >= 0
+        && data.serverData is map && data.serverData.size() >= 1 && data.serverData.size() <= 45
+        && data.proposedData is map && data.proposedData.size() >= 1 && data.proposedData.size() <= 45
+        && isValidEmailEntry(data.serverUpdatedByEmail)
+        && data.proposedByUid is string && data.proposedByUid.size() >= 1 && data.proposedByUid.size() <= 128
+        && isValidEmailEntry(data.proposedByEmail)
+        && data.status is string && data.status in ['OPEN', 'RESOLVED']
+        && data.resolution is string && data.resolution.size() <= 32
+        && data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 && data.updatedBy == request.auth.uid
+        && isValidEmailEntry(data.updatedByEmail) && data.updatedByEmail == request.auth.token.email
+        && isValidManagerEmails(data.authorizedEmails)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCloudBackup(data) {
+      return data.keys().hasAll([
+          'backupId',
+          'farmId',
+          'label',
+          'schemaVersion',
+          'recordCount',
+          'checksumSha256',
+          'snapshotData',
+          'adminUid',
+          'adminEmail',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'backupId',
+          'farmId',
+          'label',
+          'schemaVersion',
+          'recordCount',
+          'checksumSha256',
+          'snapshotData',
+          'adminUid',
+          'adminEmail',
+          'createdAt'
+        ])
+        && isValidId(data.backupId)
+        && data.farmId is string && data.farmId == 'primary_farm'
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 120
+        && data.schemaVersion is int && data.schemaVersion >= 1
+        && data.recordCount is int && data.recordCount >= 0
+        && data.checksumSha256 is string && data.checksumSha256.size() == 64
+        && data.snapshotData is map && data.snapshotData.size() >= 1 && data.snapshotData.size() <= 30
+        && data.adminUid is string && data.adminUid.size() >= 1 && data.adminUid.size() <= 128 && data.adminUid == request.auth.uid
+        && isValidEmailEntry(data.adminEmail) && data.adminEmail == 'inamdarrizwan755@gmail.com'
+        && data.createdAt is timestamp;
+    }
+
+    // =========================================================================
+    // 1. Root Shared Farm Access (/farms/{farmId})
+    // =========================================================================
+    match /farms/{farmId} {
+      allow get: if isSignedIn()
+        && isValidId(farmId)
+        && farmId == 'primary_farm'
+        && (
+          isBootstrappedAdmin()
+          || (existing().memberEmail != '' && request.auth.token.email == existing().memberEmail)
+          || (
+            'workerEmail' in existing()
+            && existing().workerEmail != ''
+            && existing().workerActive == true
+            && request.auth.token.email == existing().workerEmail
+          )
+        );
+
+      allow list: if false;
+
+      allow create: if isBootstrappedAdmin()
+        && isValidId(farmId)
+        && farmId == 'primary_farm'
+        && isValidFarmAccess(incoming())
+        && incoming().adminUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(farmId)
+        && isValidFarmAccess(incoming())
+        && incoming().farmId == existing().farmId
+        && incoming().adminUid == existing().adminUid
+        && incoming().adminEmail == existing().adminEmail
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Administrator manages team allowlist (Uncle + Worker), status, or migrates schema
+          (
+            isBootstrappedAdmin()
+            && existing().adminUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'farmName',
+              'memberEmail',
+              'memberUid',
+              'workerEmail',
+              'workerUid',
+              'workerActive',
+              'managerEmails',
+              'authorizedEmails',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action 2: Allowlisted Uncle binds own Firebase UID on first sign-in
+          (
+            existing().memberEmail != ''
+            && request.auth.token.email == existing().memberEmail
+            && existing().memberUid == ''
+            && incoming().memberUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['memberUid', 'updatedAt'])
+          )
+          ||
+          // Action 3: Active allowlisted Farm Worker binds own Firebase UID on first sign-in
+          (
+            'workerEmail' in existing()
+            && existing().workerEmail != ''
+            && existing().workerActive == true
+            && request.auth.token.email == existing().workerEmail
+            && existing().workerUid == ''
+            && incoming().workerUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['workerUid', 'updatedAt'])
+          )
+        );
+
+      allow delete: if false;
+
+      // =======================================================================
+      // 2. Shared Farm Settings (/farms/{farmId}/settings/{settingId})
+      // =======================================================================
+      match /settings/{settingId} {
+        allow get: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(settingId)
+          && settingId == 'config'
+          && (isFarmManager(farmId) || isActiveWorker(farmId));
+
+        allow list: if false;
+
+        allow create: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(settingId)
+          && settingId == 'config'
+          && isValidSharedFarmSettings(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && isFarmAdmin(farmId)
+          && incoming().authorizedEmails == getFarm(farmId).authorizedEmails;
+
+        allow update: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(settingId)
+          && settingId == 'config'
+          && isValidSharedFarmSettings(incoming())
+          && incoming().farmId == existing().farmId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && isFarmAdmin(farmId)
+          && incoming().authorizedEmails == getFarm(farmId).authorizedEmails
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'farmName',
+            'ownerName',
+            'phone',
+            'address',
+            'currencySymbol',
+            'volumeUnit',
+            'weightUnit',
+            'enableAfternoonSession',
+            'defaultMilkRatePerLitre',
+            'gestationDaysCow',
+            'gestationDaysBuffalo',
+            'notificationsEnabled',
+            'setupCompleted',
+            'version',
+            'updatedBy',
+            'updatedByEmail',
+            'authorizedEmails',
+            'updatedAt'
+          ]);
+
+        allow delete: if false;
+      }
+
+      // =======================================================================
+      // 3. Synchronized Farm Records (/farms/{farmId}/records/{docId})
+      // =======================================================================
+      match /records/{docId} {
+        allow get: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(docId)
+          && (
+            isFarmManager(farmId)
+            || (isActiveWorker(farmId) && isWorkerAllowedStore(existing().storeName))
+          );
+
+        // Cost-optimized Query Enforcer: zero get()/exists() inside list
+        // Financial & sensitive stores hold ONLY managerEmails in authorizedEmails,
+        // mathematically blocking any Worker list query from reading financial documents.
+        allow list: if isSignedIn()
+          && farmId == 'primary_farm'
+          && request.auth.token.email in existing().authorizedEmails;
+
+        allow create: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(docId)
+          && isValidSyncedFarmRecord(incoming())
+          && incoming().docId == docId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && matchesExpectedRecordEmails(farmId, incoming().storeName, incoming().authorizedEmails)
+          && (
+            isFarmManager(farmId)
+            || (
+              isActiveWorker(farmId)
+              && isWorkerAllowedStore(incoming().storeName)
+              && incoming().isDeleted == false
+            )
+          );
+
+        allow update: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(docId)
+          && isValidSyncedFarmRecord(incoming())
+          && incoming().docId == existing().docId
+          && incoming().farmId == existing().farmId
+          && incoming().storeName == existing().storeName
+          && incoming().recordId == existing().recordId
+          && incoming().clientCreatedAt == existing().clientCreatedAt
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && matchesExpectedRecordEmails(farmId, incoming().storeName, incoming().authorizedEmails)
+          && (
+            // Action 1: Administrator full update / conflict resolution / restore / access propagation
+            (
+              isFarmAdmin(farmId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'data',
+                'version',
+                'baseVersion',
+                'isDeleted',
+                'clientUpdatedAt',
+                'updatedBy',
+                'updatedByEmail',
+                'authorizedEmails',
+                'updatedAt'
+              ])
+            )
+            ||
+            // Action 2: Uncle (Farm Member) sequential versioned update across ALL operational & financial stores
+            (
+              isUncleMember(farmId)
+              && incoming().version == existing().version + 1
+              && incoming().baseVersion == existing().version
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'data',
+                'version',
+                'baseVersion',
+                'isDeleted',
+                'clientUpdatedAt',
+                'updatedBy',
+                'updatedByEmail',
+                'authorizedEmails',
+                'updatedAt'
+              ])
+            )
+            ||
+            // Action 3: Active Farm Worker sequential versioned update on permitted stores ONLY (cannot delete)
+            (
+              isActiveWorker(farmId)
+              && isWorkerAllowedStore(existing().storeName)
+              && existing().isDeleted == false
+              && incoming().isDeleted == false
+              && incoming().version == existing().version + 1
+              && incoming().baseVersion == existing().version
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'data',
+                'version',
+                'baseVersion',
+                'isDeleted',
+                'clientUpdatedAt',
+                'updatedBy',
+                'updatedByEmail',
+                'authorizedEmails',
+                'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if false;
+      }
+
+      // =======================================================================
+      // 4. Sync Conflicts Queue (/farms/{farmId}/conflicts/{conflictId})
+      // =======================================================================
+      match /conflicts/{conflictId} {
+        allow get: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(conflictId)
+          && isFarmManager(farmId);
+
+        allow list: if isSignedIn()
+          && farmId == 'primary_farm'
+          && request.auth.token.email in existing().authorizedEmails;
+
+        allow create: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(conflictId)
+          && isValidSyncConflict(incoming())
+          && incoming().conflictId == conflictId
+          && incoming().status == 'OPEN'
+          && incoming().resolution == ''
+          && incoming().proposedByUid == request.auth.uid
+          && incoming().proposedByEmail == request.auth.token.email
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            isFarmManager(farmId)
+            || (isActiveWorker(farmId) && isWorkerAllowedStore(incoming().storeName))
+          )
+          && exists(/databases/$(database)/documents/farms/$(farmId)/records/$(incoming().docId))
+          && incoming().authorizedEmails == getFarm(farmId).managerEmails;
+
+        allow update: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(conflictId)
+          && isValidSyncConflict(incoming())
+          && incoming().conflictId == existing().conflictId
+          && incoming().farmId == existing().farmId
+          && incoming().docId == existing().docId
+          && incoming().storeName == existing().storeName
+          && incoming().recordId == existing().recordId
+          && incoming().proposedByUid == existing().proposedByUid
+          && incoming().proposedByEmail == existing().proposedByEmail
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().authorizedEmails == getFarm(farmId).managerEmails
+          && (
+            // Action 1: Admin or Uncle resolves an OPEN conflict
+            (
+              isFarmManager(farmId)
+              && existing().status == 'OPEN'
+              && incoming().status == 'RESOLVED'
+              && incoming().resolution.size() >= 1
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'status',
+                'resolution',
+                'updatedBy',
+                'updatedByEmail',
+                'authorizedEmails',
+                'updatedAt'
+              ])
+            )
+            ||
+            // Action 2: Administrator propagates managerEmails allowlist updates
+            (
+              isFarmAdmin(farmId)
+              && incoming().status == existing().status
+              && incoming().resolution == existing().resolution
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'authorizedEmails',
+                'updatedBy',
+                'updatedByEmail',
+                'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if false;
+      }
+
+      // =======================================================================
+      // 5. Optional Cloud Backup Vault (/farms/{farmId}/backups/{backupId})
+      // =======================================================================
+      match /backups/{backupId} {
+        allow get: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(backupId)
+          && isFarmAdmin(farmId);
+
+        // Zero get()/exists() inside list; strictly Admin-only
+        allow list: if isBootstrappedAdmin()
+          && farmId == 'primary_farm'
+          && existing().adminEmail == request.auth.token.email;
+
+        allow create: if isSignedIn()
+          && isValidId(farmId)
+          && isValidId(backupId)
+          && isValidCloudBackup(incoming())
+          && incoming().backupId == backupId
+          && incoming().createdAt == request.time
+          && isFarmAdmin(farmId);
+
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
+  }
+}
